@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SCAN3 — Barcode Input System</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.21.3/umd/index.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --surface2: #181c24;
+    --border: #1e2430;
+    --accent: #00e5ff;
+    --accent2: #ff6b35;
+    --green: #00ff88;
+    --text: #e8edf5;
+    --muted: #4a5568;
+    --danger: #ff3b5c;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,229,255,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,229,255,0.03) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 24px 16px 48px;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+  }
+
+  .logo {
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    color: var(--accent);
+    text-shadow: 0 0 30px rgba(0,229,255,0.5);
+  }
+  .logo span { color: var(--text); }
+
+  .badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 4px 10px;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border-radius: 2px;
+  }
+
+  /* Progress */
+  .progress-section { margin-bottom: 24px; }
+  .progress-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    display: flex;
+    justify-content: space-between;
+  }
+  .progress-label .count { color: var(--accent); font-weight: 700; }
+  .progress-bar-wrap { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--green));
+    border-radius: 2px;
+    transition: width 0.5s cubic-bezier(0.4,0,0.2,1);
+    box-shadow: 0 0 10px rgba(0,229,255,0.6);
+    width: 0%;
+  }
+
+  /* Endpoint config */
+  .config-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 16px;
+  }
+  .config-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 1px;
+    white-space: nowrap;
+  }
+  .config-input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    outline: none;
+    min-width: 0;
+  }
+  .config-input::placeholder { color: var(--muted); }
+
+  /* Scanner card */
+  .scanner-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 12px;
+  }
+
+  .scanner-header {
+    padding: 12px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--muted);
+    letter-spacing: 1px;
+  }
+
+  .scanner-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+  .scanner-dot.active {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity:1; } 50% { opacity:0.4; }
+  }
+
+  /* Video wrapper */
+  .video-wrap {
+    position: relative;
+    width: 100%;
+    background: #000;
+    display: none;
+    min-height: 240px;
+  }
+  .video-wrap.show { display: block; }
+
+  #previewVideo {
+    width: 100%;
+    display: block;
+    max-height: 300px;
+    object-fit: cover;
+  }
+
+  /* Scan frame overlay */
+  .scan-overlay {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .scan-frame {
+    width: 220px;
+    height: 90px;
+    position: relative;
+  }
+  .scan-frame::before,.scan-frame::after,
+  .scan-frame>span::before,.scan-frame>span::after {
+    content:'';position:absolute;width:22px;height:22px;
+    border-color:var(--accent);border-style:solid;
+  }
+  .scan-frame::before{top:0;left:0;border-width:2px 0 0 2px;}
+  .scan-frame::after{top:0;right:0;border-width:2px 2px 0 0;}
+  .scan-frame>span::before{bottom:0;left:0;border-width:0 0 2px 2px;}
+  .scan-frame>span::after{bottom:0;right:0;border-width:0 2px 2px 0;}
+  .scan-line {
+    position:absolute;left:4px;right:4px;height:1px;
+    background:linear-gradient(90deg,transparent,var(--accent),transparent);
+    animation:scanMove 2s ease-in-out infinite;top:50%;
+  }
+  @keyframes scanMove{0%{top:5%}50%{top:95%}100%{top:5%}}
+
+  /* Buttons row */
+  .btn-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .btn-cam {
+    padding: 11px 8px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    border: 1px solid var(--accent);
+    background: rgba(0,229,255,0.08);
+    color: var(--accent);
+    transition: all 0.2s;
+    text-align: center;
+  }
+  .btn-cam:hover { background: rgba(0,229,255,0.16); }
+  .btn-cam.stop {
+    border-color: var(--danger);
+    background: rgba(255,59,92,0.08);
+    color: var(--danger);
+  }
+
+  /* File / capture input */
+  .btn-file-wrap {
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-file-wrap input[type=file] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    font-size: 0;
+  }
+  .btn-file {
+    padding: 11px 8px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border: 1px solid var(--accent2);
+    background: rgba(255,107,53,0.08);
+    color: var(--accent2);
+    width: 100%;
+    text-align: center;
+    pointer-events: none;
+  }
+
+  /* Manual input */
+  .manual-section {
+    padding: 12px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    gap: 8px;
+  }
+  .manual-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    padding: 10px 14px;
+    border-radius: 6px;
+    outline: none;
+    transition: border-color 0.2s;
+    letter-spacing: 1px;
+  }
+  .manual-input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(0,229,255,0.1); }
+  .manual-input::placeholder { color: var(--muted); }
+
+  .btn-add {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 10px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    letter-spacing: 1px;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+  .btn-add:hover { background: #33ecff; }
+
+  /* Items */
+  .items-section { margin-top: 24px; margin-bottom: 12px; }
+  .section-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+
+  .item-slot {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 56px;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4,0,0.2,1);
+  }
+  .item-slot.filled {
+    border-color: rgba(0,229,255,0.3);
+    background: rgba(0,229,255,0.04);
+    animation: slotFill 0.4s cubic-bezier(0.4,0,0.2,1);
+  }
+  @keyframes slotFill {
+    0%{transform:translateX(-8px);opacity:0}
+    100%{transform:translateX(0);opacity:1}
+  }
+  .item-slot.filled::before {
+    content:'';position:absolute;left:0;top:0;bottom:0;
+    width:3px;background:var(--accent);box-shadow:0 0 8px var(--accent);
+  }
+  .item-slot.empty { border-style: dashed; }
+
+  .slot-num { font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);width:20px;flex-shrink:0; }
+  .slot-value { flex:1;font-family:'JetBrains Mono',monospace;font-size:14px;color:var(--text);letter-spacing:1px;word-break:break-all; }
+  .slot-empty-text { font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--muted);font-style:italic; }
+  .slot-time { font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);flex-shrink:0; }
+  .slot-delete { background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;padding:2px 4px;transition:color 0.2s;flex-shrink:0;line-height:1; }
+  .slot-delete:hover { color:var(--danger); }
+
+  /* Submit status */
+  .submit-status { background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:16px 20px;display:none; }
+  .submit-status.show { display:block; }
+  .submit-status.submitting { border-color:rgba(0,229,255,0.4);animation:borderPulse 1s ease-in-out infinite; }
+  @keyframes borderPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,229,255,0.2)}50%{box-shadow:0 0 0 6px rgba(0,229,255,0)}}
+  .submit-status.success { border-color:rgba(0,255,136,0.4);background:rgba(0,255,136,0.04); }
+  .submit-status.error { border-color:rgba(255,59,92,0.4);background:rgba(255,59,92,0.04); }
+
+  .status-row { display:flex;align-items:center;gap:10px;margin-bottom:8px; }
+  .status-icon { font-size:18px;flex-shrink:0; }
+  .status-title { font-size:14px;font-weight:700; }
+  .status-detail { font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-top:8px;line-height:1.6;white-space:pre-wrap;word-break:break-all; }
+  .status-detail .key { color:var(--accent); }
+
+  .loader { display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.7s linear infinite; }
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .btn-reset {
+    width:100%;background:transparent;border:1px solid var(--border);color:var(--muted);
+    font-family:'JetBrains Mono',monospace;font-size:12px;padding:12px;border-radius:8px;
+    cursor:pointer;letter-spacing:1px;transition:all 0.2s;margin-top:12px;text-transform:uppercase;
+  }
+  .btn-reset:hover { border-color:var(--accent2);color:var(--accent2); }
+
+  /* Toast */
+  .toast {
+    position:fixed;bottom:24px;left:50%;
+    transform:translateX(-50%) translateY(80px);
+    background:var(--surface2);border:1px solid var(--border);
+    color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;
+    padding:10px 20px;border-radius:6px;z-index:100;
+    transition:transform 0.3s cubic-bezier(0.4,0,0.2,1);
+    white-space:nowrap;letter-spacing:0.5px;pointer-events:none;
+  }
+  .toast.show { transform:translateX(-50%) translateY(0); }
+  .toast.warn { border-color:var(--accent2);color:var(--accent2); }
+  .toast.ok { border-color:var(--green);color:var(--green); }
+
+  /* Image preview for file scan */
+  #imgPreview {
+    width:100%;max-height:200px;object-fit:contain;
+    background:#000;display:none;
+  }
+  #imgPreview.show { display:block; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div class="logo">SCAN<span>3</span></div>
+    <div class="badge">BARCODE</div>
+  </div>
+
+  <!-- Endpoint -->
+  <div class="config-row">
+    <span class="config-label">POST →</span>
+    <input class="config-input" id="endpointInput" type="text" placeholder="https://your-api.com/endpoint" value="https://httpbin.org/post">
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-section">
+    <div class="progress-label">
+      <span>SCANNED ITEMS</span>
+      <span class="count" id="countLabel">0 / 3</span>
+    </div>
+    <div class="progress-bar-wrap">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
+
+  <!-- Scanner card -->
+  <div class="scanner-card">
+    <div class="scanner-header">
+      <div class="scanner-dot" id="scannerDot"></div>
+      <span id="scannerStatus">PILIH MODE SCAN</span>
+    </div>
+
+    <!-- Live video -->
+    <div class="video-wrap" id="videoWrap">
+      <video id="previewVideo" autoplay muted playsinline></video>
+      <canvas id="snapCanvas" style="display:none"></canvas>
+      <div class="scan-overlay">
+        <div class="scan-frame"><span></span><div class="scan-line"></div></div>
+      </div>
+    </div>
+
+    <!-- Image preview (from file) -->
+    <img id="imgPreview" alt="barcode preview">
+
+    <!-- Buttons -->
+    <div class="btn-row">
+      <button class="btn-cam" id="btnCam" onclick="toggleCamera()">📷 KAMERA LIVE</button>
+      <div class="btn-file-wrap">
+        <div class="btn-file">📂 FOTO / FILE</div>
+        <input type="file" accept="image/*" capture="environment" id="fileInput" onchange="handleFile(this)">
+      </div>
+    </div>
+
+    <!-- Manual -->
+    <div class="manual-section">
+      <input class="manual-input" id="manualInput" type="text" placeholder="Ketik barcode lalu Enter…" maxlength="100">
+      <button class="btn-add" onclick="addManual()">+ ADD</button>
+    </div>
+  </div>
+
+  <!-- Items -->
+  <div class="items-section">
+    <div class="section-title">HASIL SCAN</div>
+    <div id="itemSlots"></div>
+  </div>
+
+  <!-- Submit status -->
+  <div class="submit-status" id="submitStatus">
+    <div class="status-row">
+      <div class="status-icon" id="statusIcon"></div>
+      <div class="status-title" id="statusTitle"></div>
+    </div>
+    <div class="status-detail" id="statusDetail"></div>
+  </div>
+  <button class="btn-reset" onclick="resetAll()">↺ RESET — SCAN ULANG</button>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const MAX = 3;
+let scanned = [];
+let lastCode = '', lastTime = 0;
+let stream = null;
+let cameraActive = false;
+let rafId = null;
+let codeReader = null;
+
+// ── ZXing setup ──────────────────────────────────────────
+function getReader() {
+  if (!codeReader) {
+    const hints = new Map();
+    // Support all common formats
+    const fmts = [
+      ZXing.BarcodeFormat.QR_CODE,
+      ZXing.BarcodeFormat.CODE_128,
+      ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.EAN_13,
+      ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.UPC_A,
+      ZXing.BarcodeFormat.UPC_E,
+      ZXing.BarcodeFormat.DATA_MATRIX,
+      ZXing.BarcodeFormat.ITF,
+      ZXing.BarcodeFormat.PDF_417,
+      ZXing.BarcodeFormat.AZTEC,
+    ];
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, fmts);
+    hints.set(ZXing.DecodeHintType.TRY_HARDER, true);
+    codeReader = new ZXing.MultiFormatReader();
+    codeReader.setHints(hints);
+  }
+  return codeReader;
+}
+
+// ── Camera (live) ────────────────────────────────────────
+async function toggleCamera() {
+  if (cameraActive) { stopCamera(); return; }
+
+  const btn = document.getElementById('btnCam');
+  btn.textContent = '⏳ MEMUAT…';
+  btn.disabled = true;
+
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } }
+    });
+
+    const video = document.getElementById('previewVideo');
+    video.srcObject = stream;
+    await video.play();
+
+    document.getElementById('videoWrap').classList.add('show');
+    document.getElementById('imgPreview').classList.remove('show');
+    document.getElementById('scannerDot').classList.add('active');
+    document.getElementById('scannerStatus').textContent = 'SCANNING LIVE…';
+    btn.textContent = '■ STOP KAMERA';
+    btn.classList.add('stop');
+    btn.disabled = false;
+    cameraActive = true;
+
+    scanLoop();
+  } catch(e) {
+    btn.textContent = '📷 KAMERA LIVE';
+    btn.disabled = false;
+    showToast('Kamera gagal: ' + e.message, 'warn');
+  }
+}
+
+function scanLoop() {
+  const video = document.getElementById('previewVideo');
+  const canvas = document.getElementById('snapCanvas');
+
+  function tick() {
+    if (!cameraActive) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(video, 0, 0);
+      try {
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const lum = ZXing.RGBLuminanceSource
+          ? new ZXing.RGBLuminanceSource(imgData.data, canvas.width, canvas.height)
+          : null;
+        if (lum) {
+          const bmp = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
+          const result = getReader().decode(bmp);
+          if (result) addBarcode(result.getText());
+        }
+      } catch(e) { /* not found — continue */ }
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+  rafId = requestAnimationFrame(tick);
+}
+
+function stopCamera() {
+  cameraActive = false;
+  if (rafId) { cancelAnimationFrame(rafId); rafId = null; }
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  document.getElementById('videoWrap').classList.remove('show');
+  document.getElementById('scannerDot').classList.remove('active');
+  document.getElementById('scannerStatus').textContent = 'PILIH MODE SCAN';
+  const btn = document.getElementById('btnCam');
+  btn.textContent = '📷 KAMERA LIVE';
+  btn.classList.remove('stop');
+  btn.disabled = false;
+}
+
+// ── File / photo input ────────────────────────────────────
+async function handleFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  input.value = '';
+
+  stopCamera();
+
+  const img = document.getElementById('imgPreview');
+  img.src = URL.createObjectURL(file);
+  img.classList.add('show');
+  document.getElementById('scannerStatus').textContent = 'MEMPROSES GAMBAR…';
+  document.getElementById('scannerDot').classList.add('active');
+
+  // Draw to canvas then decode
+  const bmp = await createImageBitmap(file);
+  const canvas = document.getElementById('snapCanvas');
+  canvas.width = bmp.width;
+  canvas.height = bmp.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(bmp, 0, 0);
+
+  try {
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const lum = new ZXing.RGBLuminanceSource(imgData.data, canvas.width, canvas.height);
+    const binary = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
+    const result = getReader().decode(binary);
+    addBarcode(result.getText());
+    document.getElementById('scannerStatus').textContent = '✓ BERHASIL DECODE';
+  } catch(e) {
+    showToast('Barcode tidak terbaca. Coba foto lebih jelas.', 'warn');
+    document.getElementById('scannerStatus').textContent = 'GAGAL DECODE';
+  }
+
+  document.getElementById('scannerDot').classList.remove('active');
+}
+
+// ── Add barcode ───────────────────────────────────────────
+function addBarcode(value) {
+  value = String(value).trim();
+  if (!value) return;
+
+  const now = Date.now();
+  if (value === lastCode && (now - lastTime) < 2000) return;
+  lastCode = value; lastTime = now;
+
+  if (scanned.length >= MAX) { showToast('Sudah 3 item!', 'warn'); return; }
+  if (scanned.find(s => s.value === value)) { showToast('Duplikat: ' + value, 'warn'); return; }
+
+  const time = new Date().toTimeString().slice(0,8);
+  scanned.push({ value, time });
+  renderSlots();
+  showToast('✓ ' + value, 'ok');
+
+  if (scanned.length === MAX) {
+    stopCamera();
+    setTimeout(autoSubmit, 700);
+  }
+}
+
+function addManual() {
+  const inp = document.getElementById('manualInput');
+  addBarcode(inp.value);
+  inp.value = '';
+  inp.focus();
+}
+document.getElementById('manualInput').addEventListener('keydown', e => { if(e.key==='Enter') addManual(); });
+
+// ── Render ────────────────────────────────────────────────
+function renderSlots() {
+  const c = document.getElementById('itemSlots');
+  c.innerHTML = '';
+  for (let i = 0; i < MAX; i++) {
+    const d = document.createElement('div');
+    d.className = 'item-slot ' + (scanned[i] ? 'filled' : 'empty');
+    if (scanned[i]) {
+      d.innerHTML = `
+        <span class="slot-num">${String(i+1).padStart(2,'0')}</span>
+        <span class="slot-value">${esc(scanned[i].value)}</span>
+        <span class="slot-time">${scanned[i].time}</span>
+        <button class="slot-delete" onclick="removeItem(${i})">×</button>`;
+    } else {
+      d.innerHTML = `
+        <span class="slot-num">${String(i+1).padStart(2,'0')}</span>
+        <span class="slot-empty-text">— menunggu scan —</span>`;
+    }
+    c.appendChild(d);
+  }
+  document.getElementById('progressBar').style.width = (scanned.length/MAX*100)+'%';
+  document.getElementById('countLabel').textContent = scanned.length + ' / ' + MAX;
+}
+
+function removeItem(i) {
+  scanned.splice(i, 1);
+  renderSlots();
+  document.getElementById('submitStatus').className = 'submit-status';
+}
+
+// ── Auto submit ───────────────────────────────────────────
+async function autoSubmit() {
+  const endpoint = document.getElementById('endpointInput').value.trim();
+  if (!endpoint) { showToast('Endpoint kosong!','warn'); return; }
+
+  const st = document.getElementById('submitStatus');
+  st.className = 'submit-status show submitting';
+  document.getElementById('statusIcon').innerHTML = '<div class="loader"></div>';
+  document.getElementById('statusTitle').textContent = 'Mengirim data…';
+  document.getElementById('statusDetail').innerHTML = '';
+
+  const payload = {
+    timestamp: new Date().toISOString(),
+    total: MAX,
+    barcodes: scanned.map((s,i) => ({ urutan: i+1, value: s.value, scanned_at: s.time }))
+  };
+  const bodyStr = JSON.stringify(payload, null, 2);
+  document.getElementById('statusDetail').innerHTML = `<span class="key">PAYLOAD:</span>\n${esc(bodyStr)}`;
+
+  try {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (res.ok) {
+      st.className = 'submit-status show success';
+      document.getElementById('statusIcon').textContent = '✓';
+      document.getElementById('statusTitle').textContent = 'BERHASIL DIKIRIM!';
+      document.getElementById('statusDetail').innerHTML =
+        `<span class="key">STATUS:</span> ${res.status} ${res.statusText}\n<span class="key">ENDPOINT:</span> ${esc(endpoint)}\n<span class="key">PAYLOAD:</span>\n${esc(bodyStr)}`;
+      showToast('✓ Submit berhasil!','ok');
+    } else {
+      throw new Error('HTTP ' + res.status);
+    }
+  } catch(e) {
+    st.className = 'submit-status show error';
+    document.getElementById('statusIcon').textContent = '✗';
+    document.getElementById('statusTitle').textContent = 'GAGAL KIRIM';
+    document.getElementById('statusDetail').innerHTML =
+      `<span class="key">ERROR:</span> ${esc(e.message)}\n<span class="key">PAYLOAD:</span>\n${esc(bodyStr)}`;
+    showToast('Gagal: '+e.message,'warn');
+  }
+}
+
+// ── Reset ─────────────────────────────────────────────────
+function resetAll() {
+  scanned = []; lastCode = ''; lastTime = 0;
+  stopCamera();
+  document.getElementById('submitStatus').className = 'submit-status';
+  document.getElementById('imgPreview').classList.remove('show');
+  document.getElementById('scannerStatus').textContent = 'PILIH MODE SCAN';
+  renderSlots();
+  showToast('Reset. Siap scan ulang.','ok');
+}
+
+// ── Toast ─────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg, type='') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { el.className = 'toast'; }, 2500);
+}
+
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// Init
+renderSlots();
+</script>
+</body>
+</html>
